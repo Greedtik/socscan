@@ -185,21 +185,36 @@ cve_scan() {
 
     local res=$(curl -s -X POST -d "$payload" https://api.osv.dev/v1/query)
     
-    # เช็คว่าผลลัพธ์ว่างเปล่า หรือเป็นแค่ปีกกา {} หรือไม่
     if [[ "$res" == *"{}"* || -z "$res" ]]; then
         echo -e "${GREEN}[SAFE]${NC} No known CVEs found for this version."
     else
         echo -e "\n      ${RED}[VULNERABLE]${NC} Potential CVEs found for $pkg."
         
-        # ใช้ grep -oE ในการดึงเฉพาะรหัส CVE (รองรับทั้งแบบ CVE- ปกติ และ DEBIAN-CVE-)
-        # วิธีนี้รันได้ชัวร์ 100% แม้แต่บน OS อายุ 15 ปี
-        local extracted_cves=$(echo "$res" | grep -oE '(DEBIAN-)?CVE-[0-9]+-[0-9]+' | sort -u | head -n 3)
-        
-        if [ -n "$extracted_cves" ]; then
-            echo "$extracted_cves" | sed 's/^/        -> /'
-            echo -e "        ${YELLOW}(Please search these IDs online for details)${NC}"
+        # --- THE MAGIC FIX: ใช้ Python Parsing JSON แทน jq เพื่อให้รองรับ Linux ทุกยุค ---
+        local PY_SCRIPT="
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    for v in d.get('vulns', [])[:3]:
+        cve = v.get('aliases', [v.get('id', 'Unknown')])[0]
+        desc = v.get('summary', '')
+        if not desc: # ถ้าไม่มี summary ให้ไปดึง details มาตัดคำแทน
+            desc = v.get('details', '')
+            desc = desc.replace('\n', ' ')[:80] + '...' if desc else 'No details available'
+        # ป้องกัน Error ตัวอักษรแปลกๆ บน Terminal เก่าๆ
+        desc = ''.join([i if ord(i) < 128 else '' for i in desc])
+        print('        -> ' + str(cve) + ': ' + str(desc))
+except Exception as e:
+    pass
+"
+        # สคริปต์จะหา Python3 ก่อน ถ้าไม่มีจะใช้ Python 2.7 อัตโนมัติ
+        if command -v python3 &> /dev/null; then
+            echo "$res" | python3 -c "$PY_SCRIPT"
+        elif command -v python &> /dev/null; then
+            echo "$res" | python -c "$PY_SCRIPT"
         else
-            echo -e "        -> Unknown vulnerability format detected."
+            # ถ้าเครื่องนี้แปลกจัดๆ ไม่มีทั้ง jq และ python เลย (ซึ่งยากมาก) ค่อยโชว์แค่รหัส
+            echo "$res" | grep -oE '(DEBIAN-)?CVE-[0-9]+-[0-9]+' | sort -u | head -n 3 | sed 's/^/        -> /'
         fi
         
         echo -e "      ${GREEN}[REMEDIATION]${NC} To fix, run: ${YELLOW}sudo $update_cmd${NC}"
