@@ -164,7 +164,6 @@ cve_scan() {
         echo -e "    ${YELLOW}[SKIP]${NC} No internet access or API unreachable."; return
     fi
 
-    # เช็คแพ็กเกจ sudo เป็นตัวอย่าง (สามารถเพิ่มแพ็กเกจอื่นๆ ได้ในอนาคต)
     local pkg="sudo"
     local ver=""
     local update_cmd=""
@@ -186,16 +185,21 @@ cve_scan() {
 
     local res=$(curl -s -X POST -d "$payload" https://api.osv.dev/v1/query)
     
+    # เช็คว่าผลลัพธ์ว่างเปล่า หรือเป็นแค่ปีกกา {} หรือไม่
     if [[ "$res" == *"{}"* || -z "$res" ]]; then
         echo -e "${GREEN}[SAFE]${NC} No known CVEs found for this version."
     else
         echo -e "\n      ${RED}[VULNERABLE]${NC} Potential CVEs found for $pkg."
         
-        if command -v jq &> /dev/null; then
-            echo "$res" | jq -r '.vulns[] | "        -> \(.aliases[0] // .id): \(.summary // "Detail not summarized by OSV. Please google this CVE ID.")"' | head -n 3
+        # ใช้ grep -oE ในการดึงเฉพาะรหัส CVE (รองรับทั้งแบบ CVE- ปกติ และ DEBIAN-CVE-)
+        # วิธีนี้รันได้ชัวร์ 100% แม้แต่บน OS อายุ 15 ปี
+        local extracted_cves=$(echo "$res" | grep -oE '(DEBIAN-)?CVE-[0-9]+-[0-9]+' | sort -u | head -n 3)
+        
+        if [ -n "$extracted_cves" ]; then
+            echo "$extracted_cves" | sed 's/^/        -> /'
+            echo -e "        ${YELLOW}(Please search these IDs online for details)${NC}"
         else
-            echo "$res" | grep -o 'CVE-[0-9]*-[0-9]*' | sort -u | head -n 3 | sed 's/^/        -> /'
-            echo -e "        ${YELLOW}(Tip: Install 'jq' to see full vulnerability descriptions)${NC}"
+            echo -e "        -> Unknown vulnerability format detected."
         fi
         
         echo -e "      ${GREEN}[REMEDIATION]${NC} To fix, run: ${YELLOW}sudo $update_cmd${NC}"
