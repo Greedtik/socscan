@@ -192,7 +192,7 @@ cve_scan() {
         echo -e "\n      ${RED}[VULNERABLE]${NC} Potential CVEs found for $pkg."
         
         if command -v jq &> /dev/null; then
-            echo "$res" | jq -r '.vulns[] | "        -> \(.aliases[0] // .id): \(.summary // "No summary available")"' | head -n 3
+            echo "$res" | jq -r '.vulns[] | "        -> \(.aliases[0] // .id): \(.summary // (if .details then (.details[0:80] + "...") else "No details available" end))"' | head -n 3
         else
             echo "$res" | grep -o 'CVE-[0-9]*-[0-9]*' | sort -u | head -n 3 | sed 's/^/        -> /'
             echo -e "        ${YELLOW}(Tip: Install 'jq' to see full vulnerability descriptions)${NC}"
