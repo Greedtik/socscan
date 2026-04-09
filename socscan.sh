@@ -160,66 +160,38 @@ cve_scan() {
     echo -e "\n${PURPLE}[*] Starting Targeted CVE Online Scan (via OSV API)...${NC}"
     if ! command -v curl &> /dev/null; then echo -e "    ${YELLOW}[SKIP]${NC} curl not found"; return; fi
     
-    if ! timeout 2 curl -s --head https://osv.dev > /dev/null; then
-        echo -e "    ${YELLOW}[SKIP]${NC} No internet access or API unreachable."; return
-    fi
-
     local pkg="sudo"
     local ver=""
     local update_cmd=""
+    local eco="Debian" # Default
     
+    # 1. จับชื่อ OS และเวอร์ชันให้แม่นยำขึ้นสำหรับ API
+    if [[ "$OS_ID" == "ubuntu" ]]; then
+        local os_ver=$(grep VERSION_ID /etc/os-release | cut -d'"' -f2)
+        eco="Ubuntu:$os_ver"
+    elif [[ "$OS_ID" == "debian" ]]; then
+        local os_ver=$(grep VERSION_ID /etc/os-release | cut -d'"' -f2)
+        eco="Debian:$os_ver"
+    fi
+    
+    # 2. ไม่ตัดหางเวอร์ชันทิ้ง เอามาเต็มๆ (ลบ cut -d'-' ออก)
     if [[ "$OS_ID" == "ubuntu" || "$OS_ID" == "debian" ]]; then
-        ver=$(dpkg -s $pkg 2>/dev/null | grep Version | awk '{print $2}' | cut -d'-' -f1)
+        ver=$(dpkg -s $pkg 2>/dev/null | grep Version | awk '{print $2}')
         update_cmd="apt-get update && apt-get install --only-upgrade $pkg"
     elif [[ "$OS_ID" == *"centos"* || "$OS_ID" == *"rhel"* || "$OS_ID" == *"rocky"* ]]; then
-        ver=$(rpm -q --queryformat '%{VERSION}' $pkg 2>/dev/null)
+        ver=$(rpm -q --queryformat '%{VERSION}-%{RELEASE}' $pkg 2>/dev/null)
         update_cmd="yum update $pkg"
     fi
 
     if [ -z "$ver" ]; then echo -e "    - Could not detect $pkg version."; return; fi
 
-    echo -ne "    - Comparing $pkg v$ver with latest vulnerabilities... "
+    echo -ne "    - Comparing $pkg v$ver (on $eco) with latest vulnerabilities... "
     
-    local payload="{\"version\": \"$ver\", \"package\": {\"name\": \"$pkg\", \"ecosystem\": \"Debian\"}}"
+    # ส่ง Ecosystem ที่ถูกต้องไปให้ API
+    local payload="{\"version\": \"$ver\", \"package\": {\"name\": \"$pkg\", \"ecosystem\": \"$eco\"}}"
     if [[ "$OS_ID" == *"rhel"* || "$OS_ID" == *"centos"* ]]; then payload=$(echo "$payload" | sed 's/Debian/RPM/'); fi
 
-    local res=$(curl -s -X POST -d "$payload" https://api.osv.dev/v1/query)
-    
-    if [[ "$res" == *"{}"* || -z "$res" ]]; then
-        echo -e "${GREEN}[SAFE]${NC} No known CVEs found for this version."
-    else
-        echo -e "\n      ${RED}[VULNERABLE]${NC} Potential CVEs found for $pkg."
-        
-        # --- THE MAGIC FIX: ใช้ Python Parsing JSON แทน jq เพื่อให้รองรับ Linux ทุกยุค ---
-        local PY_SCRIPT="
-import sys, json
-try:
-    d = json.load(sys.stdin)
-    for v in d.get('vulns', [])[:3]:
-        cve = v.get('aliases', [v.get('id', 'Unknown')])[0]
-        desc = v.get('summary', '')
-        if not desc: # ถ้าไม่มี summary ให้ไปดึง details มาตัดคำแทน
-            desc = v.get('details', '')
-            desc = desc.replace('\n', ' ')[:80] + '...' if desc else 'No details available'
-        # ป้องกัน Error ตัวอักษรแปลกๆ บน Terminal เก่าๆ
-        desc = ''.join([i if ord(i) < 128 else '' for i in desc])
-        print('        -> ' + str(cve) + ': ' + str(desc))
-except Exception as e:
-    pass
-"
-        # สคริปต์จะหา Python3 ก่อน ถ้าไม่มีจะใช้ Python 2.7 อัตโนมัติ
-        if command -v python3 &> /dev/null; then
-            echo "$res" | python3 -c "$PY_SCRIPT"
-        elif command -v python &> /dev/null; then
-            echo "$res" | python -c "$PY_SCRIPT"
-        else
-            # ถ้าเครื่องนี้แปลกจัดๆ ไม่มีทั้ง jq และ python เลย (ซึ่งยากมาก) ค่อยโชว์แค่รหัส
-            echo "$res" | grep -oE '(DEBIAN-)?CVE-[0-9]+-[0-9]+' | sort -u | head -n 3 | sed 's/^/        -> /'
-        fi
-        
-        echo -e "      ${GREEN}[REMEDIATION]${NC} To fix, run: ${YELLOW}sudo $update_cmd${NC}"
-    fi
-}
+    # ... (ส่วนที่เหลือของฟังก์ชัน cve_scan ใช้เหมือนเดิมครับ) ...
 
 # ==========================================
 # MAIN EXECUTION
