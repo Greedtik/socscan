@@ -44,15 +44,10 @@ done
 echo "เสร็จสิ้น"
 echo ""
 
-# 4. หาไฟล์ที่มีบรรทัดยาวผิดปกติ (แฮ็กเกอร์มักจะบีบอัดโค้ดป๊อปอัพให้เหลือบรรทัดเดียวแต่ยาวมากๆ)
+# 4. สแกนหาไฟล์ที่มีโค้ดบรรทัดยาวผิดปกติ (ข้ามไฟล์ .min.js ของระบบ)
 echo -e "${YELLOW}[*] 4. สแกนหาไฟล์ที่มีโค้ดบรรทัดยาวผิดปกติ (เกิน 3000 ตัวอักษร)...${NC}"
-find "$TARGET_DIR" -type f \( -name "*.php" -o -name "*.js" \) 2>/dev/null -exec awk 'length($0) > 3000 {print FILENAME; exit}' {} \; | while read -r file; do
-    echo -e "  ${RED}[OBFUSCATED]${NC} บรรทัดยาวผิดปกติ: $file"
+find "$TARGET_DIR" -type f \( -name "*.php" -o \( -name "*.js" ! -name "*.min.js" \) \) 2>/dev/null -exec awk 'length($0) > 3000 {print FILENAME; exit}' {} \; | while read -r file; do
+    echo -e "  ${RED}[OBFUSCATED]${NC} บรรทัดยาวผิดปกติ (อาจซ่อนโค้ดมัลแวร์): $file"
 done
 echo "เสร็จสิ้น"
 echo ""
-
-echo -e "${GREEN}====================================================${NC}"
-echo -e "การสแกนเสร็จสมบูรณ์ โปรดตรวจสอบรายชื่อไฟล์ที่แสดงด้านบน"
-echo -e "คำแนะนำ: ให้เปิดไฟล์ที่สคริปต์นี้แจ้งเตือนขึ้นมาดูด้วยตาเปล่าอีกครั้ง"
-echo -e "${GREEN}====================================================${NC}"
